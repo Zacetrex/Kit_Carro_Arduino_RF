@@ -2,68 +2,77 @@
 // Este código se hizo con fin de compartirlo con la comunidad y tiene fines educativos
 // Más códigos en zacetrex.com
 
-#include <SPI.h>   // Librería necesaria para comunicación SPI (usada por el NRF24L01)
-#include <RF24.h>  // Librería para manejar el módulo NRF24L01
+// -------------------------------------------------------------
+// RECEPTOR – CARRO ROBOT
+// Arduino UNO + L298N + NRF24L01
+// -------------------------------------------------------------
 
-// Creamos el objeto radio indicando los pines CE y CSN
-RF24 radio(7, 8);  
+#include <SPI.h>     // Comunicación SPI para NRF24L01
+#include <RF24.h>    // Librería del NRF24L01
+
+// Pines del NRF24L01 en el receptor
+// CE -> pin 7
+// CSN -> pin 8
+RF24 radio(7, 8);
 
 // Pines del driver L298N
-int ENA = 3;   // Habilita y controla la velocidad del motor A (PWM)
-int IN1 = 4;   // Control del sentido motor A
-int IN2 = 5;   // Control del sentido motor A
-int IN3 = 6;   // Control del sentido motor B
-int IN4 = 9;   // Control del sentido motor B
-int ENB = 10;  // Habilita y controla la velocidad del motor B (PWM)
+int ENA = 3;   // Controla velocidad del motor A (PWM)
+int IN1 = 4;   // Sentido motor A
+int IN2 = 5;
 
-// Arreglo donde se guardan los datos que llegan del control remoto
+int IN3 = 6;   // Sentido motor B
+int IN4 = 9;
+int ENB = 10;  // Velocidad motor B (PWM)
+
+// Arreglo para recibir los datos del transmisor
 int joystick[6];
 
-char instruction = 'x';      // Instrucción actual
-char lastInstruction = 'x';  // Última instrucción ejecutada (para no repetir)
+// Variable para decidir hacia dónde moverse
+char instruction = 'x';      // 'x' = detener
+char lastInstruction = 'x';  // Guarda la última instrucción para evitar repetir
 
-// Dirección para la comunicación NRF24L01
+// Dirección del canal (igual al transmisor)
 const byte identificacion[6] = "00001";
 
 void setup() {
-  Serial.begin(9600);   // Inicia el monitor serial
-  radio.begin();        // Inicializa el módulo de radio
 
-  // Abre un canal de lectura (pipe)
+  Serial.begin(9600);
+
+  // Inicializamos el radio
+  radio.begin();
+
+  // Abrimos canal de lectura 0 con la identificación indicada
   radio.openReadingPipe(0, identificacion);
 
-  // Ajusta la potencia del NRF24L01 (mínima para evitar interferencias)
+  // Potencia baja
   radio.setPALevel(RF24_PA_MIN);
 
-  // Comienza a escuchar datos
+  // Modo recepción
   radio.startListening();
 
-  // ENA y ENB se utilizan para controlar la velocidad del motor (PWM)
-  // Puede modificarlo, el rango es de 0 a 255, donde 255 es la maxima velocidad.
-  // No todos los motores son exactamente iguales, algunos no se moveran por lo 
-  // que necesitan aumentar la velocidad, tambien si coloca mucho peso, 
-  // no se moveran y tendra que aumentar la velocidad
-  analogWrite(ENA, 150);  
-  analogWrite(ENB, 150);
+  // Configurar velocidad de los motores
+  // PWM (0–255), aquí velocidad media (150)
+  analogWrite(ENA,150);
+  analogWrite(ENB,150);
 }
 
 void loop() {
 
-  // Verifica si llegó algún dato por el NRF24L01
+  // Verificamos si hay datos disponibles en el radio
   if (radio.available())
   {
-    // Guarda los datos recibidos en el arreglo joystick
+    // Guardamos los datos recibidos dentro del array joystick[]
     radio.read(&joystick, sizeof(joystick));
 
-    // Obtiene la instrucción según el joystick enviado
+    // Interpretar el movimiento dependiendo del joystick
     instruction = GetInstruction();
 
-    // Solo ejecuta el movimiento cuando la instrucción cambia
+    // Solo actuamos si la instrucción cambió
     if (instruction != lastInstruction) {
 
       lastInstruction = instruction;
 
-      // Según la instrucción recibida, mueve el carro
+      // Elegir acción según la letra recibida
       switch(instruction)
       {
         case 'a':
@@ -92,68 +101,61 @@ void loop() {
         break;
       }
 
-      // Muestra la última instrucción en el monitor
       Serial.println(lastInstruction);
     }
   }
 }
 
-// Función que interpreta los valores del joystick y decide la instrucción
 char GetInstruction()
 {
-  // Botones digitales (joystick[2], joystick[3], etc.)
-  if (joystick[2] == LOW) return 'a';  // Adelante
-  else if (joystick[3] == LOW) return 'b'; // Derecha
-  else if (joystick[4] == LOW) return 'c'; // Atrás
-  else if (joystick[5] == LOW) return 'd'; // Izquierda
+  // Botones primero (tienen prioridad)
+  if (joystick[2] == LOW)  return 'a'; // Botón A → Adelante
+  if (joystick[3] == LOW)  return 'b'; // Botón B → Derecha
+  if (joystick[4] == LOW)  return 'c'; // Botón C → Atrás
+  if (joystick[5] == LOW)  return 'd'; // Botón D → Izquierda
 
-  // Movimientos analógicos del joystick
-  if(joystick[1] > 550) return 'a';  // Adelante
-  else if(joystick[0] > 550) return 'b'; // Derecha
-  else if(joystick[1] < 300) return 'c'; // Atrás
-  else if(joystick[0] < 300) return 'd'; // Izquierda
+  // Joystick analógico
+  // Valores arriba de 550 = empujado hacia un lado
+  // Valores menores a 300 = empujado hacia el lado opuesto
 
-  // Si nada coincide, se detiene
+  if (joystick[1] > 550) return 'a'; // Adelante
+  if (joystick[0] > 550) return 'b'; // Derecha
+  if (joystick[1] < 300) return 'c'; // Atrás
+  if (joystick[0] < 300) return 'd'; // Izquierda
+
+  // Si no se detecta nada, se detiene
   return 'x';
 }
 
-// Funciones de movimiento del carro
-// Cambian el estado lógico de las entradas del L298N para controlar el sentido de giro
+// -------------------------------------------------------------
+// Funciones que indican cómo mover los motores del L298N
+// -------------------------------------------------------------
 
 void Adelante(){
-  // Motor A hacia adelante
-  digitalWrite(IN1, LOW);
+  digitalWrite(IN1, LOW);   // Motor A adelante
   digitalWrite(IN2, HIGH);
-  // Motor B hacia adelante
-  digitalWrite(IN3, LOW);
+  digitalWrite(IN3, LOW);   // Motor B adelante
   digitalWrite(IN4, HIGH);
 }
 
 void Derecha(){
-  // Motor A hacia atrás
-  digitalWrite(IN1, HIGH);
+  digitalWrite(IN1, HIGH);  // Motor A atrás
   digitalWrite(IN2, LOW);
-  // Motor B hacia adelante
-  digitalWrite(IN3, LOW);
+  digitalWrite(IN3, LOW);   // Motor B adelante
   digitalWrite(IN4, HIGH);
-  // Esto hace que el carro gire hacia la derecha
 }
 
 void Atras(){
-  // Motor A hacia atrás
-  digitalWrite(IN1, HIGH);
+  digitalWrite(IN1, HIGH);  // Motor A atrás
   digitalWrite(IN2, LOW);
-  // Motor B hacia atrás
-  digitalWrite(IN3, HIGH);
+  digitalWrite(IN3, HIGH);  // Motor B atrás
   digitalWrite(IN4, LOW);
 }
 
 void Izquierda(){
-  // Motor A hacia adelante
-  digitalWrite(IN1, LOW);
+  digitalWrite(IN1, LOW);   // Motor A adelante
   digitalWrite(IN2, HIGH);
-  // Motor B hacia atrás
-  digitalWrite(IN3, HIGH);
+  digitalWrite(IN3, HIGH);  // Motor B atrás
   digitalWrite(IN4, LOW);
 }
 
